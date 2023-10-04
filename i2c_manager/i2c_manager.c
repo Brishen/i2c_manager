@@ -35,7 +35,7 @@ SOFTWARE.
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include <driver/i2c.h>
-
+#include <hal/i2c_types.h>
 #include "sdkconfig.h"
 
 #include "i2c_manager.h"
@@ -83,26 +83,6 @@ static const uint8_t ACK_CHECK_EN = 1;
 	#define I2C_MANAGER_1_LOCK_TIMEOUT	( pdMS_TO_TICKS( CONFIG_I2C_MANAGER_1_LOCK_TIMEOUT ) )
 #endif
 
-#define ERROR_PORT(port, fail) { \
-	ESP_LOGE(TAG, "Invalid port or not configured for I2C Manager: %d", (int)port); \
-	return fail; \
-}
-
-#if defined(I2C_ZERO) && defined (I2C_ONE)
-	#define I2C_PORT_CHECK(port, fail) \
-		if (port != I2C_NUM_0 && port != I2C_NUM_1) ERROR_PORT(port, fail);
-#else
-	#if defined(I2C_ZERO)
-		#define I2C_PORT_CHECK(port, fail) \
-			if (port != I2C_NUM_0) ERROR_PORT(port, fail);
-	#elif defined(I2C_ONE)
-		#define I2C_PORT_CHECK(port, fail) \
-			if (port != I2C_NUM_1) ERROR_PORT(port, fail);
-	#else
-		#define I2C_PORT_CHECK(port, fail) \
-			ERROR_PORT(port, fail);
-	#endif
-#endif
 
 static void i2c_send_address(i2c_cmd_handle_t cmd, uint16_t addr, i2c_rw_t rw) {
 	if (addr & I2C_ADDR_10) {
@@ -122,7 +102,6 @@ static void i2c_send_register(i2c_cmd_handle_t cmd, uint32_t reg) {
 
 esp_err_t I2C_FN(_init)(i2c_port_t port) {
 
-	I2C_PORT_CHECK(port, ESP_FAIL);
 
 	esp_err_t ret = ESP_OK;
 
@@ -138,21 +117,21 @@ esp_err_t I2C_FN(_init)(i2c_port_t port) {
 			conf.clk_flags = 0;
 		#endif
 
-		#if defined (I2C_ZERO)
+		#if defined (CONFIG_I2C_MANAGER_0_ENABLED)
 			if (port == I2C_NUM_0) {
 				conf.sda_io_num = CONFIG_I2C_MANAGER_0_SDA;
 				conf.scl_io_num = CONFIG_I2C_MANAGER_0_SCL;
-				conf.sda_pullup_en = I2C_MANAGER_0_PULLUPS ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+				conf.sda_pullup_en = CONFIG_I2C_MANAGER_0_PULLUPS ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 				conf.scl_pullup_en = conf.sda_pullup_en;
 				conf.master.clk_speed = CONFIG_I2C_MANAGER_0_FREQ_HZ;
 			}
 		#endif
 
-		#if defined (I2C_ONE)
+		#if defined (CONFIG_I2C_MANAGER_1_ENABLED)
 			if (port == I2C_NUM_1) {
 				conf.sda_io_num = CONFIG_I2C_MANAGER_1_SDA;
 				conf.scl_io_num = CONFIG_I2C_MANAGER_1_SCL;
-				conf.sda_pullup_en = I2C_MANAGER_1_PULLUPS ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+				conf.sda_pullup_en = CONFIG_I2C_MANAGER_1_PULLUPS ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 				conf.scl_pullup_en = conf.sda_pullup_en;
 				conf.master.clk_speed = CONFIG_I2C_MANAGER_1_FREQ_HZ;
 			}
@@ -168,7 +147,7 @@ esp_err_t I2C_FN(_init)(i2c_port_t port) {
 			ESP_LOGW(TAG, "If it was already open, we'll use it with whatever settings were used "
 			              "to open it. See I2C Manager README for details.");
 		} else {
-			ESP_LOGI(TAG, "Initialised port %d (SDA: %d, SCL: %d, speed: %d Hz.)",
+			ESP_LOGI(TAG, "Initialised port %d (SDA: %d, SCL: %d, speed: %lu Hz.)",
 					 port, conf.sda_io_num, conf.scl_io_num, conf.master.clk_speed);
 		}
 
@@ -179,24 +158,23 @@ esp_err_t I2C_FN(_init)(i2c_port_t port) {
 
 esp_err_t I2C_FN(_read)(i2c_port_t port, uint16_t addr, uint32_t reg, uint8_t *buffer, uint16_t size) {
 
-	I2C_PORT_CHECK(port, ESP_FAIL);
 
     esp_err_t result;
 
     // May seem weird, but init starts with a check if it's needed, no need for that check twice.
 	I2C_FN(_init)(port);
 
-   	ESP_LOGV(TAG, "Reading port %d, addr 0x%03x, reg 0x%04x", port, addr, reg);
+   	ESP_LOGV(TAG, "Reading port %d, addr 0x%03x, reg 0x%04lx", port, addr, reg);
 
 	TickType_t timeout = 0;
 	#if defined (I2C_ZERO)
 		if (port == I2C_NUM_0) {
-			timeout = I2C_MANAGER_0_TIMEOUT;
+			timeout = CONFIG_I2C_MANAGER_0_TIMEOUT;
 		}
 	#endif
 	#if defined (I2C_ONE)
 		if (port == I2C_NUM_1) {
-			timeout = I2C_MANAGER_1_TIMEOUT;
+			timeout = CONFIG_I2C_MANAGER_1_TIMEOUT;
 		}
 	#endif
 
@@ -232,22 +210,21 @@ esp_err_t I2C_FN(_read)(i2c_port_t port, uint16_t addr, uint32_t reg, uint8_t *b
 
 esp_err_t I2C_FN(_write)(i2c_port_t port, uint16_t addr, uint32_t reg, const uint8_t *buffer, uint16_t size) {
 
-	I2C_PORT_CHECK(port, ESP_FAIL);
 
     esp_err_t result;
 
     // May seem weird, but init starts with a check if it's needed, no need for that check twice.
 	I2C_FN(_init)(port);
 
-    ESP_LOGV(TAG, "Writing port %d, addr 0x%03x, reg 0x%04x", port, addr, reg);
+    ESP_LOGV(TAG, "Writing port %d, addr 0x%03x, reg 0x%04lx", port, addr, reg);
 
 	TickType_t timeout = 0;
-	#if defined (I2C_ZERO)
+	#if defined (CONFIG_I2C_MANAGER_0_ENABLED)
 		if (port == I2C_NUM_0) {
 			timeout = pdMS_TO_TICKS( CONFIG_I2C_MANAGER_0_TIMEOUT );
 		}
 	#endif
-	#if defined (I2C_ONE)
+	#if defined (CONFIG_I2C_MANAGER_1_ENABLED)
 		if (port == I2C_NUM_1) {
 			timeout = pdMS_TO_TICKS( CONFIG_I2C_MANAGER_1_TIMEOUT );
 		}
@@ -280,7 +257,6 @@ esp_err_t I2C_FN(_write)(i2c_port_t port, uint16_t addr, uint32_t reg, const uin
 }
 
 esp_err_t I2C_FN(_close)(i2c_port_t port) {
-	I2C_PORT_CHECK(port, ESP_FAIL);
     vSemaphoreDelete(I2C_FN(_mutex)[port]);
     I2C_FN(_mutex)[port] = NULL;
     ESP_LOGI(TAG, "Closing I2C master at port %d", port);
@@ -288,20 +264,10 @@ esp_err_t I2C_FN(_close)(i2c_port_t port) {
 }
 
 esp_err_t I2C_FN(_lock)(i2c_port_t port) {
-	I2C_PORT_CHECK(port, ESP_FAIL);
 	ESP_LOGV(TAG, "Mutex lock set for %d.", (int)port);
 
 	TickType_t timeout;
-	#if defined (I2C_ZERO)
-		if (port == I2C_NUM_0) {
-			timeout = pdMS_TO_TICKS( CONFIG_I2C_MANAGER_0_LOCK_TIMEOUT );
-		}
-	#endif
-	#if defined (I2C_ONE)
-		if (port == I2C_NUM_1) {
-			timeout = pdMS_TO_TICKS( CONFIG_I2C_MANAGER_1_LOCK_TIMEOUT );
-		}
-	#endif
+	timeout = pdMS_TO_TICKS( CONFIG_I2C_MANAGER_0_LOCK_TIMEOUT );
 
 	if (xSemaphoreTake(I2C_FN(_mutex)[port], timeout) == pdTRUE) {
 		return ESP_OK;
@@ -313,13 +279,11 @@ esp_err_t I2C_FN(_lock)(i2c_port_t port) {
 }
 
 esp_err_t I2C_FN(_unlock)(i2c_port_t port) {
-	I2C_PORT_CHECK(port, ESP_FAIL);
 	ESP_LOGV(TAG, "Mutex lock removed for %d.", (int)port);
 	return (xSemaphoreGive(I2C_FN(_mutex)[port]) == pdTRUE) ? ESP_OK : ESP_FAIL;
 }
 
 esp_err_t I2C_FN(_force_unlock)(i2c_port_t port) {
-	I2C_PORT_CHECK(port, ESP_FAIL);
 	if (I2C_FN(_mutex)[port]) {
 		vSemaphoreDelete(I2C_FN(_mutex)[port]);
 	}
@@ -361,8 +325,7 @@ esp_err_t I2C_FN(_force_unlock)(i2c_port_t port) {
     };
 
     void* i2c_hal(i2c_port_t port) {
-		I2C_PORT_CHECK(port, NULL);
-        return (void*)&_i2c_hal[port];
+		return (void*)&_i2c_hal[port];
     }
 
 #endif
